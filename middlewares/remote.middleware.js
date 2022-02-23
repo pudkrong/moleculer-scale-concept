@@ -1,21 +1,10 @@
 const Axios = require('axios');
 const Policy = require('../utils/policy');
 const PubSub = require('../utils/pubsub');
-
 const _ = require('lodash');
-const TOPIC = 'events';
-// const pubsubClient = PubSub.resolve({
-//   type: 'kubemq',
-//   options: {
-//     clientId: `${this.nodeID}-publisher`
-//   }
-// });
-const pubsubClient = PubSub.resolve({
-  type: 'google',
-  options: {
-    credential: process.env.GOOGLE_CREDENTIAL
-  }
-});
+
+let pubsubClient = null;
+let pubsubConfig = {};
 
 const timeout = Policy.timeout(3000);
 const retry = Policy.retry(2);
@@ -79,7 +68,7 @@ function wrapEmitHandler (next) {
     // console.log('EMIT:: The "emit" is called.', eventName, payload, opts);
     if (_.get(opts, 'namespace', null) !== this.namespace) {
       const meta = { sender: this.nodeID, namespace: this.namespace, braodcast: false };
-      await pubsubClient.publish(TOPIC, { eventName, payload, opts }, meta);
+      await pubsubClient.publish(pubsubConfig.topic, { eventName, payload, opts }, meta);
     }
     return next(eventName, payload, opts);
   };
@@ -91,7 +80,7 @@ function wrapBroadcastHandler (next) {
     // console.log('BROADCAST:: The "broadcast" is called.', eventName);
     if (_.get(opts, 'namespace', null) !== this.namespace) {
       const meta = { sender: this.nodeID, namespace: this.namespace, broadcast: true };
-      await pubsubClient.publish(TOPIC, { eventName, payload, opts }, meta);
+      await pubsubClient.publish(pubsubConfig.topic, { eventName, payload, opts }, meta);
     }
     return next(eventName, payload, opts);
   };
@@ -99,6 +88,23 @@ function wrapBroadcastHandler (next) {
 
 async function wrapBrokerStart (broker) {
   console.log(`Broker started as ${broker.nodeID}[${broker.namespace}]`);
+  pubsubConfig = {
+    provider: 'google',
+    topic: 'events',
+    options: {
+      google: {
+        credential: process.env.GOOGLE_CREDENTIAL
+      },
+      kubemq: {
+        clientId: `${this.nodeID}-publisher`
+      }
+    }
+  };
+
+  pubsubClient = PubSub.resolve({
+    type: pubsubConfig.provider,
+    options: pubsubConfig.options[pubsubConfig.provider]
+  });
 
   const handler = async (payload, metadata) => {
     // console.log('Payload', payload, metadata);
@@ -112,7 +118,7 @@ async function wrapBrokerStart (broker) {
     }
   };
 
-  await pubsubClient.subscribe(TOPIC, handler, {
+  await pubsubClient.subscribe(pubsubConfig.topic, handler, {
     group: broker.namespace || ''
   });
 }
@@ -122,8 +128,8 @@ module.exports = {
 
   call: wrapCallHandler,
   emit: wrapEmitHandler,
-  started: wrapBrokerStart,
-  broadcast: wrapBroadcastHandler
+  broadcast: wrapBroadcastHandler,
+  started: wrapBrokerStart
   // transitPublish: wrapTransitPublish,
   // transitMessageHandler: wrapTransitMessageHandler
 };
