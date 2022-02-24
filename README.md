@@ -14,6 +14,8 @@ However, this POC is done to be mid-term solution because we need time to separa
 ## Usage
 1. Run dependencies which are redis and kubemq using `npm run dockers`
 1. Run proxy as api gateway using `npm run proxy`
+1. Create .env file on the root folder and setup
+`GOOGLE_CREDENTIAL=/path/to/google/credential`
 1. Run service group1 using `npm run group1`
 1. Run service group2 using `npm run group2`
 

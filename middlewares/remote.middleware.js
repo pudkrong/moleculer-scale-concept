@@ -1,8 +1,10 @@
 const Axios = require('axios');
 const Policy = require('../utils/policy');
-const { EventsClient, Utils: KubeUtils } = require('kubemq-js');
+const PubSub = require('../utils/pubsub');
 const _ = require('lodash');
-const TOPIC = 'events';
+
+let pubsubClient = null;
+let pubsubConfig = {};
 
 const timeout = Policy.timeout(3000);
 const retry = Policy.retry(2);
@@ -14,7 +16,7 @@ const axiosByService = (service, namespace) => {
     // TONOTE::PUD To make each service has their own circuit breaker, we have to create new one
     const circuitBreaker = Policy.circuitBreaker(5 * 1000, { type: 'consecutive', options: { threshold: 3 } });
     const axiosInstance = Axios.create({
-      headers: { 'x-origin':  namespace }
+      headers: { 'x-origin': namespace }
     });
     // TONOTE::PUD to debug AXIOS
     // axiosInstance.interceptors.request.use(request => {
@@ -61,36 +63,24 @@ function wrapCallHandler (next) {
 }
 
 function wrapEmitHandler (next) {
-  const client = new EventsClient({
-    clientId: `${this.nodeID}-Emitter`
-  });
   return async function (eventName, payload, opts) {
     // TONOTE::PUD this == ServiceBroker
     // console.log('EMIT:: The "emit" is called.', eventName, payload, opts);
-    if (_.get(opts, 'namespace', null) !== this.namespace) {
-      await client.send({
-        channel: TOPIC,
-        body: KubeUtils.stringToBytes(JSON.stringify({ eventName, payload, opts })),
-        metadata: JSON.stringify({ sender: this.nodeID, namespace: this.namespace, braodcast: false })
-      });
+    if ((/^\$api\./.test(eventName) === false) && (_.get(opts, 'namespace', null) !== this.namespace)) {
+      const meta = { sender: this.nodeID, namespace: this.namespace, braodcast: false };
+      await pubsubClient.publish(pubsubConfig.topic, { eventName, payload, opts }, meta);
     }
     return next(eventName, payload, opts);
   };
 }
 
 function wrapBroadcastHandler (next) {
-  const client = new EventsClient({
-    clientId: `${this.nodeID}-Broadcaster`
-  });
   return async function (eventName, payload, opts) {
     // TONOTE::PUD this == ServiceBroker
     // console.log('BROADCAST:: The "broadcast" is called.', eventName);
     if (_.get(opts, 'namespace', null) !== this.namespace) {
-      await client.send({
-        channel: TOPIC,
-        body: KubeUtils.stringToBytes(JSON.stringify({ eventName, payload, opts })),
-        metadata: JSON.stringify({ sender: this.nodeID, namespace: this.namespace, broadcast: true })
-      });
+      const meta = { sender: this.nodeID, namespace: this.namespace, broadcast: true };
+      await pubsubClient.publish(pubsubConfig.topic, { eventName, payload, opts }, meta);
     }
     return next(eventName, payload, opts);
   };
@@ -98,38 +88,39 @@ function wrapBroadcastHandler (next) {
 
 async function wrapBrokerStart (broker) {
   console.log(`Broker started as ${broker.nodeID}[${broker.namespace}]`);
-
-  async function subscribe () {
-    const client = new EventsClient({
-      clientId: broker.nodeID
-    });
-
-    await client.subscribe({
-      channel: TOPIC,
-      group: broker.namespace || ''
-    }, (err, msg) => {
-      if (err) {
-        // Connection dropped
-        console.log('Error: ', err);
-        client.close();
-        setTimeout(subscribe, 2000);
-      } else {
-        const payload = JSON.parse(KubeUtils.bytesToString(msg.body));
-        const metadata = JSON.parse(msg.metadata || {});
-        // console.log('Payload', payload, metadata);
-        const broadcast = _.get(metadata, 'broadcast', false);
-        if (_.get(metadata, 'namespace', null) !== broker.namespace) {
-          if (broadcast) {
-            broker.broadcast(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
-          } else {
-            broker.emit(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
-          }
-        }
+  pubsubConfig = {
+    provider: 'google',
+    topic: 'events',
+    options: {
+      google: {
+        credential: process.env.GOOGLE_CREDENTIAL
+      },
+      kubemq: {
+        clientId: `${this.nodeID}-publisher`
       }
-    });
-  }
+    }
+  };
 
-  await subscribe();
+  pubsubClient = PubSub.resolve({
+    type: pubsubConfig.provider,
+    options: pubsubConfig.options[pubsubConfig.provider]
+  });
+
+  const handler = async (payload, metadata) => {
+    const broadcast = _.get(metadata, 'broadcast', false);
+    if (_.get(metadata, 'namespace', null) !== broker.namespace) {
+      // TONOTE::PUD we have to convert this because all metadata from Google are string
+      if (Boolean(broadcast)) {
+        broker.broadcast(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
+      } else {
+        broker.emit(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
+      }
+    }
+  };
+
+  await pubsubClient.subscribe(pubsubConfig.topic, handler, {
+    group: broker.namespace || ''
+  });
 }
 
 module.exports = {
@@ -137,8 +128,8 @@ module.exports = {
 
   call: wrapCallHandler,
   emit: wrapEmitHandler,
-  started: wrapBrokerStart,
   broadcast: wrapBroadcastHandler,
+  started: wrapBrokerStart
   // transitPublish: wrapTransitPublish,
   // transitMessageHandler: wrapTransitMessageHandler
 };

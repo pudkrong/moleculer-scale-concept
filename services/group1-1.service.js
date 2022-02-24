@@ -27,8 +27,8 @@ module.exports = {
 		 */
     emit: {
       async handler (ctx) {
-        ctx.broker.emit('group1-1.emit', { word: 'hello' });
-        return 'Hello Moleculer';
+        ctx.broker.emit('group1-1.emit', { word: 'From group1-1.emit' });
+        return 'Hello from group1-1.emit';
       }
     },
 
@@ -40,8 +40,8 @@ module.exports = {
     broadcast: {
       /** @param {Context} ctx  */
       async handler (ctx) {
-        ctx.broker.broadcast('group1-1.broadcast', { word: 'hello' });
-        return 'Hello Moleculer';
+        ctx.broker.broadcast('group1-1.broadcast', { word: 'From group1-1.broadcast' });
+        return 'Hello from group1-1.broadcast';
       }
     }
   },
