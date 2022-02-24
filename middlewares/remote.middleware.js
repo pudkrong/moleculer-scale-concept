@@ -66,7 +66,7 @@ function wrapEmitHandler (next) {
   return async function (eventName, payload, opts) {
     // TONOTE::PUD this == ServiceBroker
     // console.log('EMIT:: The "emit" is called.', eventName, payload, opts);
-    if (_.get(opts, 'namespace', null) !== this.namespace) {
+    if ((/^\$api\./.test(eventName) === false) && (_.get(opts, 'namespace', null) !== this.namespace)) {
       const meta = { sender: this.nodeID, namespace: this.namespace, braodcast: false };
       await pubsubClient.publish(pubsubConfig.topic, { eventName, payload, opts }, meta);
     }
@@ -107,10 +107,10 @@ async function wrapBrokerStart (broker) {
   });
 
   const handler = async (payload, metadata) => {
-    // console.log('Payload', payload, metadata);
     const broadcast = _.get(metadata, 'broadcast', false);
     if (_.get(metadata, 'namespace', null) !== broker.namespace) {
-      if (broadcast) {
+      // TONOTE::PUD we have to convert this because all metadata from Google are string
+      if (Boolean(broadcast)) {
         broker.broadcast(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
       } else {
         broker.emit(payload.eventName, payload.payload, Object.assign(payload.opts || {}, { namespace: broker.namespace }));
