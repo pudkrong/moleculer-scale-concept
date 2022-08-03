@@ -26,7 +26,7 @@
     "moleculer-repl": "^0.6.6"
   },
   "dependencies": {
-    "@google-cloud/pubsub": "^2.19.0",
+    "@google-cloud/pubsub": "^2.19.4",
     "axios": "^0.24.0",
     "cockatiel": "^2.0.2",
     "dotenv": "^16.0.0",
