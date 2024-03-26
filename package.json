@@ -30,7 +30,7 @@
     "axios": "^0.24.0",
     "cockatiel": "^2.0.2",
     "dotenv": "^16.0.0",
-    "express": "^4.17.2",
+    "express": "^4.19.2",
     "ioredis": "^4.27.9",
     "kubemq-js": "^1.2.3",
     "moleculer": "^0.14.16",
